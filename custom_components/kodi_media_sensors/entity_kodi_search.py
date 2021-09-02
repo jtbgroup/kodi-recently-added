@@ -15,6 +15,7 @@ from .const import (
     KEY_MOVIES,
     KEY_ALBUM_DETAILS,
     KEY_TVSHOWS,
+    KEY_CHANNELS,
     KEY_TVSHOW_SEASONS,
     KEY_TVSHOW_SEASON_DETAILS,
     KEY_TVSHOW_EPISODES,
@@ -36,11 +37,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
     _clear_timer = 300
 
     def __init__(
-        self,
-        kodi: Kodi,
-        config: KodiConfig,
-        kodi_entity_id: str,
-        search_limit: int,
+        self, kodi: Kodi, config: KodiConfig, kodi_entity_id: str, search_limit: int,
     ):
         super().__init__(kodi, config)
         self._state = STATE_ON
@@ -118,17 +115,12 @@ class KodiSearchEntity(KodiMediaSensorEntity):
         for item in item_value:
             await self.call_method_kodi_no_result(
                 "Playlist.Insert",
-                {
-                    "playlistid": playlistid,
-                    "position": idx,
-                    "item": {item_name: item},
-                },
+                {"playlistid": playlistid, "position": idx, "item": {item_name: item},},
             )
             idx = idx + 1
 
         await self.call_method_kodi_no_result(
-            "Player.Open",
-            {"item": {"playlistid": playlistid, "position": 1}},
+            "Player.Open", {"item": {"playlistid": playlistid, "position": 1}},
         )
 
     async def play_song(self, songid):
@@ -299,12 +291,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
             KEY_TVSHOW_EPISODES,
             "VideoLibrary.GetEpisodes",
             {
-                "properties": [
-                    "title",
-                    "rating",
-                    "episode",
-                    "season",
-                ],
+                "properties": ["title", "rating", "episode", "season",],
                 "limits": _limits,
                 "sort": {
                     "method": "episode",
@@ -323,11 +310,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
             KEY_TVSHOW_SEASONS,
             "VideoLibrary.GetSeasons",
             {
-                "properties": [
-                    "season",
-                    "showtitle",
-                    "thumbnail",
-                ],
+                "properties": ["season", "showtitle", "thumbnail",],
                 "limits": _limits,
                 "sort": {
                     "method": "season",
@@ -353,11 +336,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
                     "order": "ascending",
                     "ignorearticle": True,
                 },
-                "filter": {
-                    "field": "album",
-                    "operator": "contains",
-                    "value": value,
-                },
+                "filter": {"field": "album", "operator": "contains", "value": value,},
             },
         )
 
@@ -376,11 +355,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
                     "order": "ascending",
                     "ignorearticle": True,
                 },
-                "filter": {
-                    "field": "artist",
-                    "operator": "contains",
-                    "value": value,
-                },
+                "filter": {"field": "artist", "operator": "contains", "value": value,},
             },
         )
 
@@ -399,13 +374,22 @@ class KodiSearchEntity(KodiMediaSensorEntity):
                     "order": "ascending",
                     "ignorearticle": True,
                 },
-                "filter": {
-                    "field": "title",
-                    "operator": "contains",
-                    "value": value,
-                },
+                "filter": {"field": "title", "operator": "contains", "value": value,},
             },
         )
+
+    async def kodi_search_channels(self, value):
+        limits = {"start": 0}
+        allChannels = await self.call_method_kodi(
+            KEY_CHANNELS,
+            "PVR.GetChannels",
+            {"properties": ["uniqueid",], "limits": limits, "channelgroupid": "alltv",},
+        )
+        filteredChannels = []
+        for channel in allChannels:
+            if value in channel["label"]:
+                filteredChannels.append(channel)
+        return filteredChannels
 
     async def kodi_search_tvshows(self, value, unlimited: bool = False):
         limits = {"start": 0}
@@ -427,15 +411,8 @@ class KodiSearchEntity(KodiMediaSensorEntity):
                     "genre",
                 ],
                 "limits": limits,
-                "sort": {
-                    "method": "title",
-                    "order": "ascending",
-                },
-                "filter": {
-                    "field": "title",
-                    "operator": "contains",
-                    "value": value,
-                },
+                "sort": {"method": "title", "order": "ascending",},
+                "filter": {"field": "title", "operator": "contains", "value": value,},
             },
         )
 
@@ -452,7 +429,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
             artists = await self.kodi_search_artists(value)
             movies = await self.kodi_search_movies(value)
             tvshows = await self.kodi_search_tvshows(value)
-
+            channels = await self.kodi_search_channels(value)
         except Exception:
             _LOGGER.exception("Error updating sensor, is kodi running?")
             self._state = STATE_OFF
@@ -463,6 +440,7 @@ class KodiSearchEntity(KodiMediaSensorEntity):
         self.add_result(self.format_artists(artists), card_json)
         self.add_result(self.format_movies(movies), card_json)
         self.add_result(self.format_tvshows(tvshows), card_json)
+        self.add_result(self.format_channels(channels), card_json)
 
         self._data.clear
         self._data = card_json
@@ -606,6 +584,23 @@ class KodiSearchEntity(KodiMediaSensorEntity):
             except KeyError:
                 _LOGGER.warning("Error parsing key from movie blob: %s", item)
                 continue
+
+            result.append(card)
+        return result
+
+    def format_channels(self, values):
+        if values is None:
+            return None
+
+        result = []
+        for item in values:
+            card = {
+                "object_type": "channel",
+                "channelid": item["channelid"],
+            }
+
+            self.add_attribute("channelid", item, "channelid", card)
+            self.add_attribute("label", item, "label", card)
 
             result.append(card)
         return result
